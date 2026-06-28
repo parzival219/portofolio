@@ -632,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stars: 0,
         commits: 1,
         status: 'Operational',
-        link: 'https://github.com/parzival219/shopee-oms-prototype'
+        link: 'https://shopee-oms-prototype.vercel.app/'
       }
     ];
 
@@ -659,7 +659,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <td><span class="badge success"><span class="status-dot" style="box-shadow: none;"></span> ${repo.status}</span></td>
           <td style="text-align: right;">
             <a href="${repo.link}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="padding: 4px 10px; font-size: 0.75rem;">
-              <i class="ph ph-arrow-square-out"></i> Code
+              <i class="ph ph-arrow-square-out"></i> Live Demo
             </a>
           </td>
         `;
