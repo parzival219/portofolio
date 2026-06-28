@@ -625,6 +625,14 @@ document.addEventListener('DOMContentLoaded', () => {
         commits: 1, 
         status: 'Operational',
         link: 'https://github.com/parzival219/divlearn-assessment-tool'
+      },
+      {
+        name: 'shopee-oms-prototype',
+        tech: ['Next.js', 'React', 'Tailwind CSS'],
+        stars: 0,
+        commits: 1,
+        status: 'Operational',
+        link: 'https://github.com/parzival219/shopee-oms-prototype'
       }
     ];
 
