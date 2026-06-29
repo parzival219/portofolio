@@ -633,6 +633,14 @@ document.addEventListener('DOMContentLoaded', () => {
         commits: 1,
         status: 'Operational',
         link: 'https://shopee-oms-prototype.vercel.app/'
+      },
+      {
+        name: 'SaaS RBAC CRM Dashboard',
+        tech: ['Next.js', 'TypeScript', 'Tailwind CSS', 'PostgreSQL (Sim)'],
+        stars: 0,
+        commits: 1,
+        status: 'Operational',
+        link: 'https://saas-rbac-dashboard.vercel.app/'
       }
     ];
 
