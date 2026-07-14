@@ -595,136 +595,340 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   /* ----------------------------------------------------------
-     13. REPOSITORY DATABASE TABLE STATE CONTROLLER
-     Manages searches, filters, and rendering of default/loading/empty/error states
+     13. REPOSITORY DATABASE TABLE — UX Edition
+     · Debounced live search with result count feedback
+     · Sortable columns (click header to sort asc/desc)
+     · Functional pagination (5 rows per page)
+     · Keyboard-navigable rows (Enter/Space opens link)
+     · Smooth state transitions
+     · Clear empty-search feedback vs. empty-state panel
   ---------------------------------------------------------- */
   const initRepositoryTable = () => {
-    const tableBody = document.getElementById('table-body');
-    const searchInput = document.getElementById('repo-search');
-    
-    // State Containers
-    const tableElement = document.getElementById('repo-table');
-    const skeletonElement = document.getElementById('table-skeleton');
-    const emptyElement = document.getElementById('table-empty');
-    const errorElement = document.getElementById('table-error');
+    const tableBody     = document.getElementById('table-body');
+    const searchInput   = document.getElementById('repo-search');
+    const tableElement  = document.getElementById('repo-table');
+    const skeletonEl    = document.getElementById('table-skeleton');
+    const emptyEl       = document.getElementById('table-empty');
+    const errorEl       = document.getElementById('table-error');
+    const paginationInfo = document.getElementById('table-pagination-info');
+    const btnPrev       = document.getElementById('btn-prev-page');
+    const btnNext       = document.getElementById('btn-next-page');
+    const btnDefault    = document.getElementById('btn-state-default');
+    const btnLoading    = document.getElementById('btn-state-loading');
+    const btnEmpty      = document.getElementById('btn-state-empty');
+    const btnError      = document.getElementById('btn-state-error');
 
-    // Control triggers
-    const btnDefault = document.getElementById('btn-state-default');
-    const btnLoading = document.getElementById('btn-state-loading');
-    const btnEmpty = document.getElementById('btn-state-empty');
-    const btnError = document.getElementById('btn-state-error');
+    if (!tableBody || !tableElement || !skeletonEl || !emptyEl || !errorEl) return;
 
-    if (!tableBody || !tableElement || !skeletonElement || !emptyElement || !errorElement) return;
-
-    // Database entries
+    // ── Data ────────────────────────────────────────────────
     const repositories = [
-      { 
-        name: 'divlearn-assessment-tool', 
-        tech: ['Python', 'BeautifulSoup', 'Requests'], 
-        stars: 0, 
-        commits: 1, 
-        status: 'Operational',
+      {
+        name: 'divlearn-assessment-tool',
+        tech: ['Python', 'BeautifulSoup', 'Requests'],
+        stars: 0, commits: 1, status: 'Operational',
         link: 'https://github.com/parzival219/divlearn-assessment-tool'
       },
       {
         name: 'shopee-oms-prototype',
         tech: ['Next.js', 'React', 'Tailwind CSS'],
-        stars: 0,
-        commits: 1,
-        status: 'Operational',
+        stars: 0, commits: 1, status: 'Operational',
         link: 'https://shopee-oms-prototype.vercel.app/'
       },
       {
         name: 'SaaS RBAC CRM Dashboard',
-        tech: ['Next.js', 'TypeScript', 'Tailwind CSS', 'PostgreSQL (Sim)'],
-        stars: 0,
-        commits: 1,
-        status: 'Operational',
+        tech: ['Next.js', 'TypeScript', 'Tailwind CSS', 'PostgreSQL'],
+        stars: 0, commits: 1, status: 'Operational',
         link: 'https://saas-rbac-dashboard.vercel.app/'
       }
     ];
 
-    const renderTable = (data) => {
-      tableBody.innerHTML = '';
-      if (!data.length) {
-        showPanel('empty');
-        return;
-      }
+    // ── State ────────────────────────────────────────────────
+    const PAGE_SIZE = 5;
+    let currentPage    = 1;
+    let sortKey        = null;
+    let sortDir        = 'asc';   // 'asc' | 'desc'
+    let filteredData   = [...repositories];
+    let debounceTimer  = null;
 
-      data.forEach((repo, index) => {
-        const row = document.createElement('tr');
-        row.className = 'animate-row';
-        row.style.animationDelay = `${index * 0.05}s`;
-        row.innerHTML = `
-          <td style="font-weight: 600; color: var(--text-heading);">${repo.name}</td>
-          <td>
-            <div style="display: flex; gap: 6px;">
-              ${repo.tech.map(t => `<span class="badge">${t}</span>`).join('')}
-            </div>
-          </td>
-          <td><i class="ph-fill ph-star" style="color: var(--accent-primary); margin-right: 4px;"></i> ${repo.stars}</td>
-          <td>${repo.commits}</td>
-          <td><span class="badge success"><span class="status-dot" style="box-shadow: none;"></span> ${repo.status}</span></td>
-          <td style="text-align: right;">
-            <a href="${repo.link}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="padding: 4px 10px; font-size: 0.75rem;">
-              <i class="ph ph-arrow-square-out"></i> Live Demo
-            </a>
-          </td>
-        `;
-        tableBody.appendChild(row);
+    // ── Helpers ──────────────────────────────────────────────
+    const totalPages = () => Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
+
+    const pageSlice = () => {
+      const start = (currentPage - 1) * PAGE_SIZE;
+      return filteredData.slice(start, start + PAGE_SIZE);
+    };
+
+    // ── Sort ─────────────────────────────────────────────────
+    const applySort = () => {
+      if (!sortKey) return;
+      filteredData.sort((a, b) => {
+        let av = a[sortKey], bv = b[sortKey];
+        if (typeof av === 'string') av = av.toLowerCase();
+        if (typeof bv === 'string') bv = bv.toLowerCase();
+        if (av < bv) return sortDir === 'asc' ? -1 :  1;
+        if (av > bv) return sortDir === 'asc' ?  1 : -1;
+        return 0;
       });
     };
 
-    const showPanel = (state) => {
-      // Hide everything
-      tableElement.style.display = 'none';
-      skeletonElement.style.display = 'none';
-      emptyElement.style.display = 'none';
-      errorElement.style.display = 'none';
+    // ── Render table ─────────────────────────────────────────
+    const renderTable = () => {
+      tableBody.innerHTML = '';
+      const slice = pageSlice();
 
-      // Remove active trigger highlight
-      [btnDefault, btnLoading, btnEmpty, btnError].forEach(b => { if (b) b.classList.remove('active'); });
+      if (!filteredData.length) {
+        // No results for the current search query
+        const query = searchInput ? searchInput.value.trim() : '';
+        emptyEl.querySelector('h4').textContent = 'No results found';
+        emptyEl.querySelector('p').textContent  =
+          query ? `No repository matches "${query}".` : 'No repository files match the current query filters.';
+        showPanel('empty', /* keepActiveBtn= */ true);
+        return;
+      }
+
+      tableElement.style.display = 'table';
+      emptyEl.style.display   = 'none';
+      errorEl.style.display   = 'none';
+      skeletonEl.style.display = 'none';
+
+      slice.forEach((repo, idx) => {
+        const row = document.createElement('tr');
+        row.className = 'animate-row';
+        row.style.animationDelay = `${idx * 0.04}s`;
+        // Make row keyboard-navigable
+        row.setAttribute('tabindex', '0');
+        row.setAttribute('role', 'link');
+        row.setAttribute('aria-label', `Open ${repo.name}`);
+        row.style.cursor = 'pointer';
+
+        const techBadges = repo.tech
+          .map(t => `<span class="badge">${t}</span>`)
+          .join('');
+
+        row.innerHTML = `
+          <td class="repo-name">${repo.name}</td>
+          <td><div class="tech-stack">${techBadges}</div></td>
+          <td class="col-meta" colspan="3">
+            <div class="meta-row-mobile">
+              <span class="num-cell">
+                <i class="ph-fill ph-star" style="color:var(--accent-primary);font-size:0.75rem;"></i>
+                ${repo.stars}
+              </span>
+              <span class="num-cell">
+                <i class="ph ph-git-commit" style="color:var(--text-muted);font-size:0.75rem;"></i>
+                ${repo.commits}
+              </span>
+              <span class="badge success">
+                <span class="status-dot-live"></span>${repo.status}
+              </span>
+            </div>
+          </td>
+          <td class="col-action">
+            <a href="${repo.link}" target="_blank" rel="noopener noreferrer"
+               class="btn-row-action" title="Open ${repo.name}"
+               onclick="event.stopPropagation()">
+              <i class="ph ph-arrow-square-out"></i>
+              <span>View</span>
+            </a>
+          </td>
+        `;
+
+        // Click / keyboard → open link
+        const open = () => window.open(repo.link, '_blank', 'noopener,noreferrer');
+        row.addEventListener('click', open);
+        row.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        });
+
+        tableBody.appendChild(row);
+      });
+
+      updatePagination();
+      updateSortIndicators();
+    };
+
+    // ── Pagination UI ────────────────────────────────────────
+    const updatePagination = () => {
+      const tp = totalPages();
+      const start = filteredData.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
+      const end   = Math.min(currentPage * PAGE_SIZE, filteredData.length);
+      const total = repositories.length;
+
+      if (paginationInfo) {
+        paginationInfo.textContent =
+          filteredData.length === total
+            ? `${start}–${end} of ${total} repos`
+            : `${start}–${end} of ${filteredData.length} (filtered from ${total})`;
+      }
+
+      // Rebuild page buttons
+      const controls = document.querySelector('.pagination-controls');
+      if (!controls) return;
+      controls.innerHTML = '';
+
+      const makePagBtn = (label, page, disabled, isActive) => {
+        const btn = document.createElement('button');
+        btn.className = `btn-pagination${isActive ? ' active' : ''}${disabled ? ' disabled' : ''}`;
+        btn.textContent = label;
+        btn.setAttribute('aria-label', `Page ${label}`);
+        if (!disabled) btn.addEventListener('click', () => { currentPage = page; renderTable(); });
+        controls.appendChild(btn);
+      };
+
+      // Prev
+      const prevBtn = document.createElement('button');
+      prevBtn.className = `btn-pagination${currentPage === 1 ? ' disabled' : ''}`;
+      prevBtn.innerHTML = '<i class="ph ph-caret-left"></i>';
+      prevBtn.setAttribute('aria-label', 'Previous page');
+      if (currentPage > 1) prevBtn.addEventListener('click', () => { currentPage--; renderTable(); });
+      controls.appendChild(prevBtn);
+
+      // Page numbers
+      for (let p = 1; p <= tp; p++) {
+        makePagBtn(p, p, false, p === currentPage);
+      }
+
+      // Next
+      const nextBtn = document.createElement('button');
+      nextBtn.className = `btn-pagination${currentPage === tp ? ' disabled' : ''}`;
+      nextBtn.innerHTML = '<i class="ph ph-caret-right"></i>';
+      nextBtn.setAttribute('aria-label', 'Next page');
+      if (currentPage < tp) nextBtn.addEventListener('click', () => { currentPage++; renderTable(); });
+      controls.appendChild(nextBtn);
+    };
+
+    // ── Sort indicators on TH ────────────────────────────────
+    const updateSortIndicators = () => {
+      const ths = tableElement.querySelectorAll('thead th[data-sort]');
+      ths.forEach(th => {
+        const key = th.dataset.sort;
+        th.setAttribute('aria-sort', 'none');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) {
+          icon.className = 'sort-icon ph ph-arrows-down-up';
+          icon.style.opacity = '0.3';
+        }
+        if (key === sortKey) {
+          th.setAttribute('aria-sort', sortDir === 'asc' ? 'ascending' : 'descending');
+          if (icon) {
+            icon.className = `sort-icon ph ${sortDir === 'asc' ? 'ph-arrow-up' : 'ph-arrow-down'}`;
+            icon.style.opacity = '1';
+          }
+        }
+      });
+    };
+
+    // ── Sortable headers ─────────────────────────────────────
+    const initSortableHeaders = () => {
+      const headers = [
+        { el: tableElement.querySelector('thead tr th:nth-child(1)'), key: 'name'    },
+        { el: tableElement.querySelector('thead tr th:nth-child(3)'), key: 'stars'   },
+        { el: tableElement.querySelector('thead tr th:nth-child(4)'), key: 'commits' },
+      ];
+      headers.forEach(({ el, key }) => {
+        if (!el) return;
+        el.dataset.sort = key;
+        el.style.cursor = 'pointer';
+        el.style.userSelect = 'none';
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('role', 'columnheader');
+
+        // Append sort icon
+        const icon = document.createElement('i');
+        icon.className = 'sort-icon ph ph-arrows-down-up';
+        icon.style.cssText = 'margin-left:6px;opacity:0.3;font-size:0.7rem;vertical-align:middle;transition:opacity 0.15s;';
+        el.appendChild(icon);
+
+        const doSort = () => {
+          if (sortKey === key) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortKey = key;
+            sortDir = 'asc';
+          }
+          currentPage = 1;
+          applySort();
+          renderTable();
+        };
+
+        el.addEventListener('click', doSort);
+        el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doSort(); } });
+      });
+    };
+
+    // ── Search with debounce ─────────────────────────────────
+    const doFilter = () => {
+      const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+      filteredData = repositories.filter(r =>
+        r.name.toLowerCase().includes(q) ||
+        r.tech.some(t => t.toLowerCase().includes(q))
+      );
+      applySort();
+      currentPage = 1;
+      renderTable();
+    };
+
+    if (searchInput) {
+      // Clear button
+      const clearBtn = document.createElement('button');
+      clearBtn.innerHTML = '<i class="ph ph-x"></i>';
+      clearBtn.setAttribute('aria-label', 'Clear search');
+      clearBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--text-muted);padding:0;line-height:1;display:none;';
+      searchInput.parentNode.insertBefore(clearBtn, searchInput.nextSibling);
+
+      searchInput.addEventListener('input', () => {
+        clearBtn.style.display = searchInput.value ? 'block' : 'none';
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (currentState === 'default') doFilter();
+        }, 220);
+      });
+
+      clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        clearBtn.style.display = 'none';
+        searchInput.focus();
+        doFilter();
+      });
+    }
+
+    // ── State panel switcher ─────────────────────────────────
+    let currentState = 'default';
+
+    const showPanel = (state, keepActiveBtn = false) => {
+      currentState = state;
+
+      tableElement.style.display  = 'none';
+      skeletonEl.style.display    = 'none';
+      emptyEl.style.display       = 'none';
+      errorEl.style.display       = 'none';
+
+      if (!keepActiveBtn) {
+        [btnDefault, btnLoading, btnEmpty, btnError].forEach(b => b && b.classList.remove('active'));
+      }
 
       if (state === 'default') {
-        tableElement.style.display = 'table';
         if (btnDefault) btnDefault.classList.add('active');
-        // Re-filter and render
-        filterRepositories();
+        doFilter();  // re-run filter which will show table or empty panel
       } else if (state === 'loading') {
-        skeletonElement.style.display = 'block';
+        skeletonEl.style.display = 'block';
         if (btnLoading) btnLoading.classList.add('active');
       } else if (state === 'empty') {
-        emptyElement.style.display = 'flex';
-        if (btnEmpty) btnEmpty.classList.add('active');
+        emptyEl.style.display = 'flex';
+        if (!keepActiveBtn && btnEmpty) btnEmpty.classList.add('active');
       } else if (state === 'error') {
-        errorElement.style.display = 'flex';
+        errorEl.style.display = 'flex';
         if (btnError) btnError.classList.add('active');
       }
     };
 
-    const filterRepositories = () => {
-      const query = searchInput.value.toLowerCase().trim();
-      const filtered = repositories.filter(repo => {
-        return repo.name.toLowerCase().includes(query) || 
-               repo.tech.some(t => t.toLowerCase().includes(query));
-      });
-      renderTable(filtered);
-    };
-
-    // Listeners
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        // Automatically default state when typing
-        showPanel('default');
-      });
-    }
-
     if (btnDefault) btnDefault.addEventListener('click', () => showPanel('default'));
     if (btnLoading) btnLoading.addEventListener('click', () => showPanel('loading'));
-    if (btnEmpty) btnEmpty.addEventListener('click', () => showPanel('empty'));
-    if (btnError) btnError.addEventListener('click', () => showPanel('error'));
+    if (btnEmpty)   btnEmpty.addEventListener('click',   () => showPanel('empty'));
+    if (btnError)   btnError.addEventListener('click',   () => showPanel('error'));
 
-    // Initial render
+    // ── Boot ─────────────────────────────────────────────────
+    initSortableHeaders();
     showPanel('default');
   };
 
